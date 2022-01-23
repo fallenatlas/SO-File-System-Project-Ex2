@@ -8,6 +8,7 @@
 static pthread_mutex_t single_global_lock;
 static pthread_cond_t c;
 int number_open_files=0;
+int destroy_active;
 
 int tfs_init() {
     state_init();
@@ -21,6 +22,7 @@ int tfs_init() {
         return -1;
     }
     number_open_files = 0;
+    destroy_active = 0;
     return 0;
 }
 
@@ -39,10 +41,10 @@ static bool valid_pathname(char const *name) {
 int tfs_destroy_after_all_closed(){
     if (pthread_mutex_lock(&single_global_lock) != 0)
         return -1;
+    destroy_active = 1;
     while(number_open_files > 0){
         pthread_cond_wait(&c, &single_global_lock);
     }
-    number_open_files = -1;
     if (pthread_mutex_unlock(&single_global_lock) != 0)
         return -1;
     if (tfs_destroy() == -1)
@@ -128,7 +130,7 @@ static int _tfs_open_unsynchronized(char const *name, int flags) {
 int tfs_open(char const *name, int flags) {
     if (pthread_mutex_lock(&single_global_lock) != 0)
         return -1;
-    if (number_open_files == -1) {
+    if (destroy_active == 1) {
         pthread_mutex_unlock(&single_global_lock);
         return -1;
     }
