@@ -2,6 +2,18 @@
 
 #define OP_CODE_SIZE 1
 #define SIZE_REQUEST 80
+#define SIZE_CLIENT_PIPE_PATH 40
+
+typedef struct {
+    char op_code;
+    int session_id;
+    int fhandle;
+    int flags;
+    size_t size;
+    char client_pipe[40];
+    char *buff;
+    char const *file_name;
+} r_args;
 
 int main(int argc, char **argv) {
 
@@ -38,7 +50,7 @@ int main(int argc, char **argv) {
         if (r <= 0) {
             break;
         }
-        processRequest(buf);
+        processRequest(buf, fserv);
     }
 
     fclose(fserv);
@@ -46,13 +58,19 @@ int main(int argc, char **argv) {
     return 0;
 }
 
-int processRequest(char *buf) {
+int processRequest(char *buf, FILE *fserv) {
+    int r;
     long op_code;
     char *ptr;
     op_code = strtol(buf, &ptr, 10);
 
     switch(op_code) {
         case TFS_OP_CODE_MOUNT :
+            r_args *rargs = (r_args*) malloc(sizeof(r_args)); 
+            char client_pipe[40];
+            r = fread(client_pipe, sizeof(char), SIZE_CLIENT_PIPE_PATH, fserv);
+            //tasks[numberofclients];
+            //number_of_clients++;
             // read remaining input and send to thread
             // either send result to client here of put it in buf and send it in the main loop
             break;
