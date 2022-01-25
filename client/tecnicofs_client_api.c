@@ -28,16 +28,15 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
 
     // Create client pipe.
     unlink(client_pipe_path);
-    if (mkfifo(client_pipe_path, 0777) < 0) {
+    if (mkfifo(client_pipe_path, 0640) < 0) {
         exit(1);
     }
     client_pipe_name = client_pipe_path;
 
     // Write request to server pipe
-    if ((fserv = open(server_pipe_path, O_WRONLY, O_APPEND)) == -1) {
+    if ((fserv = open(server_pipe_path, O_WRONLY)) == -1) {
         exit(1);
     }
-
     /*
     if (strlen(client_pipe_path) > 40) {
         printf("here\n");
@@ -56,8 +55,10 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     request[0] = '1';
     strncpy(&request[1], client_pipe_path, SIZE_CLIENT_PIPE_PATH);
     printf("request: %s\n", request);
+    printf("before writing\n");
     r1 = write(fserv, request, sizeof(char)*(SIZE_CLIENT_PIPE_PATH+1));
-    printf("written: %ld", r1);
+    //printf("after writing\n");
+    printf("written: %ld\n", r1);
     if (r1 <= 0) {
         return -1;
     }

@@ -3,8 +3,17 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <errno.h>
 #include <unistd.h>
 #include <string.h>
+
+
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/wait.h>
+
 
 static int number_active_sessions;
 static char free_sessions[S];
@@ -70,6 +79,7 @@ void threadProcessRequest(char *client_pipe, r_args request, int session_id) {
 
 void *working_thread(void *arg){
     int id = *((int *) arg);
+    free(arg);
     int consptr = 0;
     while (1) {
         pthread_mutex_lock(&sessions[id].prod_cons_mutex);
@@ -111,7 +121,9 @@ void prepareServer() {
     pthread_t tid[S];
 
     for (int i = 0; i < S; i++) {
-        if (pthread_create (&tid[i], NULL, working_thread, (void*)&i) != 0)
+        int *j = (int *) malloc(sizeof(int));
+        (*j) = i;
+        if (pthread_create (&tid[i], NULL, working_thread, (void*) j) != 0)
             exit(1);
     }
 
@@ -133,18 +145,27 @@ int main(int argc, char **argv) {
     char buf[4096];
     memset(buf, '\0', 4096);
     char *request;
-    unlink(pipename);
+    printf("before unlink\n");
+
+    if (unlink(pipename) != 0 && errno != ENOENT) {
+        fprintf(stderr, "[ERR]: unlink(%s) failed: %s\n", pipename,
+                strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    
+    printf("after unlink\n");
 
     
     prepareServer();
-
-    if (mkfifo(pipename, 0777) < 0) {
+    printf("after prepareServer\n");
+    if (mkfifo(pipename, 0640) < 0) {
         exit(1);
     }
-
+    printf("after mkfifo\n");
     if ((fserv = open(pipename, O_RDONLY)) == -1) {
         exit(1);
     }
+    printf("opened pipe\n");
     //TO DO: implement producer in server
 
     for(;;) {
