@@ -12,13 +12,14 @@
 #define SIZE_CLIENT_PIPE_PATH 40
 
 int session_id;
-FILE *fserv;
-FILE *fcli;
+int fserv;
+int fcli;
+char const *client_pipe_name;
 
 int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     /* TODO: Implement this */
     //int r;
-    size_t r1;
+    ssize_t r1;
     int s_id;
     char *ptr;
     char buf[2];
@@ -30,9 +31,10 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     if (mkfifo(client_pipe_path, 0777) < 0) {
         exit(1);
     }
+    client_pipe_name = client_pipe_path;
 
     // Write request to server pipe
-    if ((fserv = fopen(server_pipe_path, "a")) == NULL) {
+    if ((fserv = open(server_pipe_path, O_WRONLY, O_APPEND)) == -1) {
         exit(1);
     }
 
@@ -54,17 +56,18 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     request[0] = '1';
     strncpy(&request[1], client_pipe_path, SIZE_CLIENT_PIPE_PATH);
     printf("request: %s\n", request);
-    r1 = fwrite(request, sizeof(char), SIZE_CLIENT_PIPE_PATH+1, fserv);
+    r1 = write(fserv, request, sizeof(char)*(SIZE_CLIENT_PIPE_PATH+1));
+    printf("written: %ld", r1);
     if (r1 <= 0) {
         return -1;
     }
 
     // Read response from the client pipe.
-    if ((fcli = fopen(client_pipe_path, "r")) == NULL) {
+    if ((fcli = open(client_pipe_path, O_RDONLY)) == -1) {
         exit(1);
     }
 
-    r1 = fread(buf, sizeof(char), 1, fcli);
+    r1 = read(fcli, buf, sizeof(char));
     if (r1 <= 0) {
         return -1;
     }
@@ -72,8 +75,9 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     // Set the session_id.
     s_id = (int) strtol(buf, &ptr, 10);
     if (s_id == -1) {
-        //fclose(client_pipe_path);
-        //fclose(server_pipe_path);
+        close(fserv);
+        close(fcli);
+        unlink(client_pipe_path);
         return -1;
     }
     session_id = s_id;
@@ -83,31 +87,60 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
 
 int tfs_unmount() {
     /* TODO: Implement this */
-    return -1;
+    int r;
+    ssize_t r1;
+    char *ptr;
+    char buf[20];
+    char request[50];
+
+    r = snprintf(request, sizeof(request), "%c%d", '2', session_id);
+    if (r < 0) {
+        return -1;
+    }
+
+    r1 = write(fserv, request, sizeof(char)*(size_t)r);
+    if (r1 <= 0) {
+        return -1;
+    }
+
+    r1 = read(fcli, buf, sizeof(int));
+    if (r1 <= 0) {
+        return -1;
+    }
+
+    r = (int) strtol(buf, &ptr, 10);
+    if (r == -1) {
+        return -1;
+    }
+
+    close(fserv);
+    close(fcli);
+    unlink(client_pipe_name);
+    return 0;
 }
 
 int tfs_open(char const *name, int flags) {
     /* TODO: Implement this */
     int r;
     int fhandle;
-    size_t r1;
+    ssize_t r1;
     char *ptr;
     char buf[20];
     char request[50];
     char file_name[41];
 
     strncpy(file_name, name, SIZE_CLIENT_PIPE_PATH);
-    r = snprintf(request, sizeof(request), "%c%d%40s%d", TFS_OP_CODE_OPEN, session_id, file_name, flags);
+    r = snprintf(request, sizeof(request), "%c%d%40s%d", '3', session_id, file_name, flags);
     if (r < 0) {
         return -1;
     }
 
-    r1 = fwrite(request, sizeof(char), (size_t) r, fserv);
+    r1 = write(fserv, request, sizeof(char)*(size_t)r);
     if (r1 <= 0) {
         return -1;
     }
 
-    r1 = fread(buf, sizeof(int), 1, fcli);
+    r1 = read(fcli, buf, sizeof(int));
     if (r1 <= 0) {
         return -1;
     }
@@ -120,22 +153,22 @@ int tfs_open(char const *name, int flags) {
 int tfs_close(int fhandle) {
     /* TODO: Implement this */
     int r;
-    size_t r1;
+    ssize_t r1;
     char *ptr;
     char buf[20];
     char request[10];
 
-    r = snprintf(request, sizeof(request), "%c%d%d", TFS_OP_CODE_CLOSE, session_id, fhandle);
+    r = snprintf(request, sizeof(request), "%c%d%d", '4', session_id, fhandle);
     if (r < 0) {
         return -1;
     }
 
-    r1 = fwrite(request, sizeof(char), (size_t) r, fserv);
+    r1 = write(fserv, request, sizeof(char)*(size_t)r);
     if (r1 <= 0) {
         return -1;
     }
 
-    r1 = fread(buf, sizeof(int), 1, fcli);
+    r1 = read(fcli, buf, sizeof(int));
     if (r1 <= 0) {
         return -1;
     }
@@ -148,22 +181,22 @@ int tfs_close(int fhandle) {
 ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
     /* TODO: Implement this */
     int r;
-    size_t r1;
+    ssize_t r1;
     char *ptr;
     char buf[20];
     char request[4096];
 
-    r = snprintf(request, sizeof(request), "%c%d%d%ld%p", TFS_OP_CODE_WRITE, session_id, fhandle, len, buffer);
+    r = snprintf(request, sizeof(request), "%c%d%d%ld%p", '5', session_id, fhandle, len, buffer);
     if (r < 0) {
         return -1;
     }
 
-    r1 = fwrite(request, sizeof(char), (size_t) r, fserv);
+    r1 = write(fserv, request, sizeof(char)*(size_t)r);
     if (r1 <= 0) {
         return -1;
     }
 
-    r1 = fread(buf, sizeof(ssize_t), 1, fcli);
+    r1 = read(fcli, buf, sizeof(ssize_t));
     if (r1 <= 0) {
         return -1;
     }
@@ -174,23 +207,23 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
 ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     /* TODO: Implement this */
     int r;
-    size_t r1;
+    ssize_t r1;
     ssize_t size;
     char *ptr;
     char buf[20];
     char request[20];
 
-    r = snprintf(request, sizeof(request), "%c%d%d%ld", TFS_OP_CODE_READ, session_id, fhandle, len);
+    r = snprintf(request, sizeof(request), "%c%d%d%ld", '6', session_id, fhandle, len);
     if (r < 0) {
         return -1;
     }
 
-    r1 = fwrite(request, sizeof(char), (size_t) r, fserv);
+    r1 = write(fserv, request, sizeof(char)*(size_t)r);
     if (r1 <= 0) {
         return -1;
     }
 
-    r1 = fread(buf, sizeof(int), 1, fcli);
+    r1 = read(fcli, buf, sizeof(int));
     if (r1 <= 0) {
         return -1;
     }
@@ -200,7 +233,7 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
         return -1;
     }
 
-    r1 = fread(buffer, sizeof(char), (size_t) size, fcli);
+    r1 = read(fcli, buffer, sizeof(char)*(size_t)size);
     if (r1 <= 0) {
         return -1;
     }
@@ -211,22 +244,22 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 int tfs_shutdown_after_all_closed() {
     /* TODO: Implement this */
     int r;
-    size_t r1;
+    ssize_t r1;
     char *ptr;
     char buf[20];
     char request[10];
 
-    r = snprintf(request, sizeof(request), "%c%d", TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED, session_id);
+    r = snprintf(request, sizeof(request), "%c%d", '7', session_id);
     if (r < 0) {
         return -1;
     }
 
-    r1 = fwrite(request, sizeof(char), (size_t) r, fserv);
+    r1 = write(fserv, request, sizeof(char)*(size_t)r);
     if (r1 <= 0) {
         return -1;
     }
 
-    r1 = fread(buf, sizeof(int), 1, fcli);
+    r1 = read(fcli, buf, sizeof(int));
     if (r1 <= 0) {
         return -1;
     }

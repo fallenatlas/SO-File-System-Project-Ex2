@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <string.h>
 
 static int number_active_sessions;
 static char free_sessions[S];
@@ -127,9 +128,10 @@ int main(int argc, char **argv) {
     printf("Starting TecnicoFS server with pipe called %s\n", pipename);
 
     /* TO DO */
-    int r;
-    FILE *fserv;
-    char *buf;
+    ssize_t r;
+    int fserv;
+    char buf[4096];
+    memset(buf, '\0', 4096);
     char *request;
     unlink(pipename);
 
@@ -140,13 +142,20 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    if ((fserv = fopen(pipename, "r")) == NULL) {
+    if ((fserv = open(pipename, O_RDONLY)) == -1) {
         exit(1);
     }
     //TO DO: implement producer in server
 
     for(;;) {
-        r = fread(buf, sizeof(char), OP_CODE_SIZE, fserv);
+        printf("before read\n");
+        r = read(fserv, buf, sizeof(char));
+        if (r <= 0) {
+            break;
+        }
+        printf("after read: %s, %ld\n", buf, r);
+        r = read(fserv, buf, sizeof(char)*40);
+        printf("after read: %s, %ld\n", buf, r);
         //r = fread(request, sizeof(char), SIZE_REQUEST, fserv);
         if (r <= 0) {
             break;
@@ -154,12 +163,12 @@ int main(int argc, char **argv) {
         processRequest(buf, fserv);
     }
 
-    fclose(fserv);
+    close(fserv);
     unlink(pipename);
     return 0;
 }
 
-int processRequest(char *buf, FILE *fserv) {
+int processRequest(char *buf, int fserv) {
     int r;
     long op_code;
     char *ptr;
