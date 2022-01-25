@@ -5,17 +5,18 @@
 #include <stdlib.h>
 #include <string.h>
 
-static pthread_mutex_t single_global_lock;
-static pthread_cond_t c;
-int number_open_files=0;
-int destroy_active;
+static pthread_mutex_t single_global_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t c = PTHREAD_COND_INITIALIZER;
+int number_open_files;
+int destroy_active = 1; // To prevent opening a file before initializing tfs
 
 int tfs_init() {
     state_init();
 
-    if (pthread_mutex_init(&single_global_lock, 0) != 0)
+    /*if (pthread_mutex_init(&single_global_lock, 0) != 0)
+        return -1;*/
+    if (pthread_mutex_lock(&single_global_lock) != 0)
         return -1;
-
     /* create root inode */
     int root = inode_create(T_DIRECTORY);
     if (root != ROOT_DIR_INUM) {
@@ -23,14 +24,16 @@ int tfs_init() {
     }
     number_open_files = 0;
     destroy_active = 0;
+    if (pthread_mutex_unlock(&single_global_lock) != 0)
+        return -1;
     return 0;
 }
 
 int tfs_destroy() {
     state_destroy();
-    if (pthread_mutex_destroy(&single_global_lock) != 0) {
+    /*if (pthread_mutex_destroy(&single_global_lock) != 0) {
         return -1;
-    }
+    }*/
     return 0;
 }
 
@@ -41,7 +44,7 @@ static bool valid_pathname(char const *name) {
 int tfs_destroy_after_all_closed(){
     if (pthread_mutex_lock(&single_global_lock) != 0)
         return -1;
-    destroy_active = 1;
+    destroy_active = 1; // To stop new openings of files
     while(number_open_files > 0){
         pthread_cond_wait(&c, &single_global_lock);
     }
