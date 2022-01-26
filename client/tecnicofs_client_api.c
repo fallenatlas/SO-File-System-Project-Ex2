@@ -82,7 +82,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
         return -1;
     }
     session_id = s_id;
-
+    
     return 0;
 }
 

@@ -21,6 +21,9 @@ static session_info sessions[S];
 
 void processMount(char *client_pipe, int session_id) {
     //TO DO: open client pipe, send message
+    if (write(sessions[session_id].fcli, "0", sizeof(int)) <= 0) {
+        printf("Couldn't write to client\n");
+    }
 }
 
 void processUnmount(int session_id) {
@@ -47,8 +50,8 @@ void processShutdown(char *client_pipe) {
     //TO DO
 }
 
-void threadProcessRequest(char *client_pipe, r_args request, int session_id) {
-    char op_code = request.op_code;
+void threadProcessRequest(char *client_pipe, r_args *request, int session_id) {
+    int op_code = request->op_code;
     switch(op_code) {
         case TFS_OP_CODE_MOUNT :
             processMount(client_pipe, session_id);
@@ -57,16 +60,16 @@ void threadProcessRequest(char *client_pipe, r_args request, int session_id) {
             processUnmount(session_id);
             break;
         case TFS_OP_CODE_OPEN :
-            processOpen(client_pipe, request.file_name, request.flags);
+            processOpen(client_pipe, request->file_name, request->flags);
             break;
         case TFS_OP_CODE_CLOSE :
-            processClose(client_pipe, request.fhandle);
+            processClose(client_pipe, request->fhandle);
             break;
         case TFS_OP_CODE_WRITE :
-            processWrite(client_pipe, request.fhandle, request.buffer, request.size);
+            processWrite(client_pipe, request->fhandle, request->buffer, request->size);
             break;
         case TFS_OP_CODE_READ :
-            processRead(request.fhandle, request.size);
+            processRead(request->fhandle, request->size);
             break;
         case TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED :
             processShutdown(client_pipe);
@@ -93,6 +96,21 @@ void *working_thread(void *arg){
         pthread_cond_signal(&sessions[id].prod);
         pthread_mutex_unlock(&sessions[id].prod_cons_mutex);
     }
+}
+
+void sendRequestToThread(int id, r_args *request) {
+    pthread_mutex_lock(&sessions[id].prod_cons_mutex);
+    printf("aquired lock\n");
+    while (sessions[id].count == N) {
+        pthread_cond_wait(&sessions[id].prod, &sessions[id].prod_cons_mutex);
+    }
+    sessions[id].requests[sessions[id].prodptr] = request;
+    sessions[id].prodptr++;
+    if (sessions[id].prodptr == N)
+        sessions[id].prodptr = 0;
+    sessions[id].count++;
+    pthread_cond_signal(&sessions[id].cons);
+    pthread_mutex_unlock(&sessions[id].prod_cons_mutex);
 }
 
 void prepareServer() {
@@ -126,8 +144,75 @@ void prepareServer() {
         if (pthread_create (&tid[i], NULL, working_thread, (void*) j) != 0)
             exit(1);
     }
-
 }
+
+/* Add locks for free sessions */
+int findSessionId() {
+    if (number_active_sessions < S) {
+        for (int i = 0; i < S; i++) {
+            if (free_sessions[i] == FREE) {
+                number_active_sessions++;
+            return i;
+            }
+        }
+    }
+    return -1;
+}
+
+
+int processRequest(char *buf, int fserv) {
+    int op_code;
+    char *ptr;
+    op_code = (int) strtol(buf, &ptr, 10);
+    printf("op: %d\n", op_code);
+
+    r_args *request = (r_args*) malloc(sizeof(r_args));
+    request->op_code = op_code;
+
+    switch(op_code) {
+        case TFS_OP_CODE_MOUNT :
+            printf("here\n");
+            int fclient;
+            int session_id;
+            char client_pipe[40];
+            if (read(fserv, client_pipe, sizeof(char)*40) <= 0) {
+                return -1;
+            }
+            if ((fclient = open(client_pipe, O_WRONLY)) == -1) {
+                return -1;
+            }
+            session_id = findSessionId();
+            if (session_id == -1) {
+                if (write(fclient, "-1", sizeof(int)) <= 0) {
+                    return -1;
+                }
+                close(fclient);
+            }
+            sessions[session_id].fcli = fclient;
+            printf("before sending request\n");
+            sendRequestToThread(session_id, request);
+            printf("finished\n");
+            break;
+        case TFS_OP_CODE_UNMOUNT :
+            break;
+        case TFS_OP_CODE_OPEN :
+            break;
+        case TFS_OP_CODE_CLOSE :
+            break;
+        case TFS_OP_CODE_WRITE :
+            break;
+        case TFS_OP_CODE_READ :
+            break;
+        case TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED :
+            break;
+        default:
+            exit(1);
+    }
+
+    printf("returning\n");
+    return 0;
+}
+
 
 int main(int argc, char **argv) {
 
@@ -144,7 +229,6 @@ int main(int argc, char **argv) {
     int fserv;
     char buf[4096];
     memset(buf, '\0', 4096);
-    char *request;
     printf("before unlink\n");
 
     if (unlink(pipename) != 0 && errno != ENOENT) {
@@ -168,58 +252,19 @@ int main(int argc, char **argv) {
     printf("opened pipe\n");
     //TO DO: implement producer in server
 
-    for(;;) {
-        printf("before read\n");
+    while (1) {
         r = read(fserv, buf, sizeof(char));
         if (r <= 0) {
             break;
         }
         printf("after read: %s, %ld\n", buf, r);
-        r = read(fserv, buf, sizeof(char)*40);
-        printf("after read: %s, %ld\n", buf, r);
-        //r = fread(request, sizeof(char), SIZE_REQUEST, fserv);
-        if (r <= 0) {
-            break;
-        }
+        //r = read(fserv, buf, sizeof(char)*40);
+        //printf("after read: %s, %ld\n", buf, r);
         processRequest(buf, fserv);
+        printf("returned\n");
     }
 
     close(fserv);
     unlink(pipename);
-    return 0;
-}
-
-int processRequest(char *buf, int fserv) {
-    int r;
-    long op_code;
-    char *ptr;
-    op_code = strtol(buf, &ptr, 10);
-
-    switch(op_code) {
-        case TFS_OP_CODE_MOUNT :
-            //r_args *rargs = (r_args*) malloc(sizeof(r_args)); 
-            //char client_pipe[40];
-            //r = fread(client_pipe, sizeof(char), SIZE_CLIENT_PIPE_PATH, fserv);
-            //tasks[numberofclients];
-            //number_of_clients++;
-            // read remaining input and send to thread
-            // either send result to client here of put it in buf and send it in the main loop
-            break;
-        case TFS_OP_CODE_UNMOUNT :
-            break;
-        case TFS_OP_CODE_OPEN :
-            break;
-        case TFS_OP_CODE_CLOSE :
-            break;
-        case TFS_OP_CODE_WRITE :
-            break;
-        case TFS_OP_CODE_READ :
-            break;
-        case TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED :
-            break;
-        default:
-            exit(1);
-    }
-
     return 0;
 }

@@ -15,8 +15,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    tfs_mount(argv[1], argv[2]);
-
+    assert(tfs_mount(argv[1], argv[2]) == 0);
 
     printf("Successful test.\n");
 

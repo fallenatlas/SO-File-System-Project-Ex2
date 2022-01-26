@@ -10,17 +10,18 @@
 #define N 15
 
 typedef struct {
-    char op_code;
+    int op_code;
     int fhandle;
     int flags;
     size_t size;
     char *buffer;
-    char *file_name;
+    char file_name[40];
 } r_args;
 
 typedef struct {
+    int fcli;
     char client_pipe_path[SIZE_CLIENT_PIPE_PATH];
-    r_args requests[N];
+    r_args *requests[N];
     int prodptr;
     int count;
     pthread_mutex_t prod_cons_mutex;
