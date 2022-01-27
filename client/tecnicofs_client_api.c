@@ -63,16 +63,19 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
         return -1;
     }
 
+    printf("after written\n");
     // Read response from the client pipe.
     if ((fcli = open(client_pipe_path, O_RDONLY)) == -1) {
         exit(1);
     }
 
+    printf("after open\n");
     r1 = read(fcli, buf, sizeof(char));
     if (r1 <= 0) {
         return -1;
     }
 
+    printf("before convert: %s\n", buf);
     // Set the session_id.
     s_id = (int) strtol(buf, &ptr, 10);
     if (s_id == -1) {
@@ -82,7 +85,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
         return -1;
     }
     session_id = s_id;
-    
+    printf("Session id: %d\n", session_id);
     return 0;
 }
 
@@ -91,7 +94,7 @@ int tfs_unmount() {
     int r;
     ssize_t r1;
     char *ptr;
-    char buf[20];
+    char buf[5];
     char request[50];
 
     r = snprintf(request, sizeof(request), "%c%d", '2', session_id);
@@ -105,10 +108,12 @@ int tfs_unmount() {
     }
 
     r1 = read(fcli, buf, sizeof(int));
+    printf("unmount r1: %ld", r1);
     if (r1 <= 0) {
         return -1;
     }
 
+    printf("before convert unmount: %s\n", buf);
     r = (int) strtol(buf, &ptr, 10);
     if (r == -1) {
         return -1;

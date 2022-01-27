@@ -19,26 +19,46 @@ static int number_active_sessions;
 static char free_sessions[S];
 static session_info sessions[S];
 
-void processMount(char *client_pipe, int session_id) {
+void writeSucessToClient(int fclient) {
+    char buf[4];
+
+}
+
+void processMount(int fclient, int session_id) {
     //TO DO: open client pipe, send message
-    if (write(sessions[session_id].fcli, "0", sizeof(int)) <= 0) {
+    if (sessions[session_id].count > 1) {
+        sessions[session_id].count = 0;
+    }
+    if (write(fclient, "0", sizeof(int)) <= 0) {
         printf("Couldn't write to client\n");
     }
 }
 
-void processUnmount(int session_id) {
+void processUnmount(int fclient, int session_id) {
     //TO DO: close client pipe, change number_active_sessions, free session
+    printf("in unmount, %d, %d\n", fclient, session_id);
+    free_sessions[session_id] = FREE;
+    number_active_sessions--;
+    printf("before write in unmount\n");
+    write(fclient, "0", sizeof(char));
+    /*
+    if (write(fclient, "0", sizeof(int)) <= 0) {
+        printf("Couldn't write to client\n");
+    }
+    */
+    printf("before close\n");
+    close(fclient);
 }
 
-void processOpen(char *client_pipe, char *name, int flags) {
+void processOpen(int fclient, char *name, int flags) {
     //TO DO
 }
 
-void processClose(char *client_pipe, int fhandle) {
+void processClose(int fclient, int fhandle) {
     //TO DO
 }
 
-void processWrite(char *client_pipe, int fhandle, char *buffer, size_t size) {
+void processWrite(int fclient, int fhandle, char *buffer, size_t size) {
     //TO DO
 }
 
@@ -46,33 +66,33 @@ void processRead(int fhandle, size_t size) {
     //TO DO
 }
 
-void processShutdown(char *client_pipe) {
+void processShutdown(int fclient) {
     //TO DO
 }
 
-void threadProcessRequest(char *client_pipe, r_args *request, int session_id) {
+void threadProcessRequest(int fclient, r_args *request, int session_id) {
     int op_code = request->op_code;
     switch(op_code) {
         case TFS_OP_CODE_MOUNT :
-            processMount(client_pipe, session_id);
+            processMount(fclient, session_id);
             break;
         case TFS_OP_CODE_UNMOUNT :
-            processUnmount(session_id);
+            processUnmount(fclient, session_id);
             break;
         case TFS_OP_CODE_OPEN :
-            processOpen(client_pipe, request->file_name, request->flags);
+            processOpen(fclient, request->file_name, request->flags);
             break;
         case TFS_OP_CODE_CLOSE :
-            processClose(client_pipe, request->fhandle);
+            processClose(fclient, request->fhandle);
             break;
         case TFS_OP_CODE_WRITE :
-            processWrite(client_pipe, request->fhandle, request->buffer, request->size);
+            processWrite(fclient, request->fhandle, request->buffer, request->size);
             break;
         case TFS_OP_CODE_READ :
             processRead(request->fhandle, request->size);
             break;
         case TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED :
-            processShutdown(client_pipe);
+            processShutdown(fclient);
             break;
         default:
             exit(1);
@@ -88,7 +108,8 @@ void *working_thread(void *arg){
         pthread_mutex_lock(&sessions[id].prod_cons_mutex);
         while (sessions[id].count == 0)
             pthread_cond_wait(&sessions[id].cons, &sessions[id].prod_cons_mutex);
-        threadProcessRequest(sessions[id].client_pipe_path, sessions[id].requests[consptr], id);
+        threadProcessRequest(sessions[id].fcli, sessions[id].requests[consptr], id);
+        //free(session[id].requests[consptr]);
         consptr++;
         if (consptr == N)
             consptr = 0;
@@ -100,7 +121,7 @@ void *working_thread(void *arg){
 
 void sendRequestToThread(int id, r_args *request) {
     pthread_mutex_lock(&sessions[id].prod_cons_mutex);
-    printf("aquired lock\n");
+    printf("acquired lock\n");
     while (sessions[id].count == N) {
         pthread_cond_wait(&sessions[id].prod, &sessions[id].prod_cons_mutex);
     }
@@ -164,16 +185,15 @@ int processRequest(char *buf, int fserv) {
     int op_code;
     char *ptr;
     op_code = (int) strtol(buf, &ptr, 10);
-    printf("op: %d\n", op_code);
 
+    int session_id;
     r_args *request = (r_args*) malloc(sizeof(r_args));
     request->op_code = op_code;
 
     switch(op_code) {
-        case TFS_OP_CODE_MOUNT :
-            printf("here\n");
+        case TFS_OP_CODE_MOUNT :;
+            printf("op: %d, mount\n", op_code);
             int fclient;
-            int session_id;
             char client_pipe[40];
             if (read(fserv, client_pipe, sizeof(char)*40) <= 0) {
                 return -1;
@@ -189,11 +209,21 @@ int processRequest(char *buf, int fserv) {
                 close(fclient);
             }
             sessions[session_id].fcli = fclient;
-            printf("before sending request\n");
+            sendRequestToThread(session_id, request);
+            printf("finished mount, %d\n", sessions[session_id].fcli);
+            break;
+        case TFS_OP_CODE_UNMOUNT :;
+            printf("op: %d, unmount\n", op_code);
+            char s_buf[10];
+            memset(s_buf, '\0', sizeof(s_buf));
+            if (read(fserv, s_buf, sizeof(int)) <= 0) {
+                //sendErrorToClient
+            }
+
+            session_id = (int) strtol(s_buf, &ptr, 10);
+            printf("session_id: %s, %d\n", s_buf, session_id);
             sendRequestToThread(session_id, request);
             printf("finished\n");
-            break;
-        case TFS_OP_CODE_UNMOUNT :
             break;
         case TFS_OP_CODE_OPEN :
             break;
@@ -206,7 +236,7 @@ int processRequest(char *buf, int fserv) {
         case TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED :
             break;
         default:
-            exit(1);
+            return -1;
     }
 
     printf("returning\n");
@@ -253,15 +283,17 @@ int main(int argc, char **argv) {
     //TO DO: implement producer in server
 
     while (1) {
-        r = read(fserv, buf, sizeof(char));
-        if (r <= 0) {
-            break;
+        printf("before read\n");
+        if (read(fserv, buf, sizeof(char)) == 0) {
+            close(fserv);
+            fserv = open(pipename, O_RDONLY);
+            continue;
         }
-        printf("after read: %s, %ld\n", buf, r);
+
         //r = read(fserv, buf, sizeof(char)*40);
         //printf("after read: %s, %ld\n", buf, r);
-        processRequest(buf, fserv);
-        printf("returned\n");
+        r = processRequest(buf, fserv);
+        printf("returned, %ld\n", r);
     }
 
     close(fserv);

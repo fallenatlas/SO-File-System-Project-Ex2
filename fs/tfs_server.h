@@ -20,7 +20,6 @@ typedef struct {
 
 typedef struct {
     int fcli;
-    char client_pipe_path[SIZE_CLIENT_PIPE_PATH];
     r_args *requests[N];
     int prodptr;
     int count;
@@ -28,5 +27,6 @@ typedef struct {
     pthread_cond_t cons;
     pthread_cond_t prod;
 } session_info;
+
 
 #endif // TFS_SERVER_H
