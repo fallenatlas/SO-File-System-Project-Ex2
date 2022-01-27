@@ -58,6 +58,9 @@ void processUnmount(int fclient, int session_id) {
 void processOpen(int fclient, char *name, int flags) {
     //TO DO
     int fhandle = tfs_open(name, flags);
+    if (write(fclient, &fhandle, sizeof(int)) <= 0) {
+        printf("Couldn't write to client\n");
+    }
 }
 
 void processClose(int fclient, int fhandle) {
@@ -232,7 +235,7 @@ int processRequest(char *buf, int fserv) {
             break;
         case TFS_OP_CODE_UNMOUNT :;
             printf("op: %d, unmount\n", op_code);
-            if (read(fserv, &session_id, sizeof(int)) <= 0) {
+            if (read(fserv, &session_id, sizeof(int)) == -1) {
                 sendErrorToClient(sessions[session_id].fcli);
             }
             printf("session_id: %d\n", session_id);
@@ -240,6 +243,21 @@ int processRequest(char *buf, int fserv) {
             printf("finished unmount\n");
             break;
         case TFS_OP_CODE_OPEN :
+            printf("op: %d, unmount\n", op_code);
+            if (read(fserv, &session_id, sizeof(int)) == -1) {
+                sendErrorToClient(sessions[session_id].fcli);
+            }
+            printf("session_id: %d\n", session_id);
+            if (read(fserv, request->file_name, 40*sizeof(char)) == -1) {
+                sendErrorToClient(sessions[session_id].fcli);
+            }
+            printf("file name: %s\n", request->file_name);
+            if (read(fserv, &request->flags, sizeof(int)) == -1) {
+                sendErrorToClient(sessions[session_id].fcli);
+            }
+            printf("flags: %d", request->flags);
+            sendRequestToThread(session_id, request);
+            printf("finished open\n");
             break;
         case TFS_OP_CODE_CLOSE :
             break;

@@ -15,7 +15,13 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    char *path = "/f1";
+    int f;
+
     assert(tfs_mount(argv[1], argv[2]) == 0);
+
+    f = tfs_open(path, TFS_O_CREAT);
+    assert(f != -1);
 
     assert(tfs_unmount() == 0);
 
