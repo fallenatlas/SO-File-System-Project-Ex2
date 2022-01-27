@@ -21,38 +21,37 @@ static session_info sessions[S];
 // Mutex to protect above data.
 static pthread_mutex_t lock;
 
-void writeSucessToClient(int fclient) {
-    char buf[4];
+void sendSucessToClient(int fclient) {
+    int return_value = 0;
+    if (write(fclient, &return_value, sizeof(int)) == -1) {
+        printf("Couldn't write to client\n");
+    }
+}
 
+void sendErrorToClient(int fclient) {
+    int return_value = -1;
+    if (write(fclient, &return_value, sizeof(int)) == -1) {
+        printf("Couldn't write to client\n");
+    }
 }
 
 void processMount(int fclient, int session_id) {
-    //TO DO: open client pipe, send message
     if (sessions[session_id].count > 1) {
-        sessions[session_id].count = 0;
+        sessions[session_id].count = 1;
     }
-    if (write(fclient, "0", sizeof(int)) <= 0) {
+    if (write(fclient, &session_id, sizeof(int)) <= 0) {
         printf("Couldn't write to client\n");
     }
 }
 
 void processUnmount(int fclient, int session_id) {
-    //TO DO: close client pipe, change number_active_sessions, free session
-    printf("in unmount, %d, %d\n", fclient, session_id);
     if (pthread_mutex_lock(&lock) != 0)
         //return -1;
     free_sessions[session_id] = FREE;
     number_active_sessions--;
+    sendSucessToClient(fclient);
     if (pthread_mutex_unlock(&lock) != 0)
         //return -1;
-    printf("before write in unmount\n");
-    write(fclient, "0", sizeof(char));
-    /*
-    if (write(fclient, "0", sizeof(int)) <= 0) {
-        printf("Couldn't write to client\n");
-    }
-    */
-    printf("before close\n");
     close(fclient);
 }
 
@@ -192,7 +191,7 @@ int findSessionId() {
                 number_active_sessions++;
                 if (pthread_mutex_unlock(&lock) != 0)
                     return -1;
-            return i;
+                return i;
             }
         }
     }
@@ -224,9 +223,7 @@ int processRequest(char *buf, int fserv) {
             }
             session_id = findSessionId();
             if (session_id == -1) {
-                if (write(fclient, "-1", sizeof(int)) <= 0) {
-                    return -1;
-                }
+                sendErrorToClient(fclient);
                 close(fclient);
             }
             sessions[session_id].fcli = fclient;
@@ -235,16 +232,12 @@ int processRequest(char *buf, int fserv) {
             break;
         case TFS_OP_CODE_UNMOUNT :;
             printf("op: %d, unmount\n", op_code);
-            char s_buf[10];
-            memset(s_buf, '\0', sizeof(s_buf));
-            if (read(fserv, s_buf, sizeof(int)) <= 0) {
-                //sendErrorToClient
+            if (read(fserv, &session_id, sizeof(int)) <= 0) {
+                sendErrorToClient(sessions[session_id].fcli);
             }
-
-            session_id = (int) strtol(s_buf, &ptr, 10);
-            printf("session_id: %s, %d\n", s_buf, session_id);
+            printf("session_id: %d\n", session_id);
             sendRequestToThread(session_id, request);
-            printf("finished\n");
+            printf("finished unmount\n");
             break;
         case TFS_OP_CODE_OPEN :
             break;

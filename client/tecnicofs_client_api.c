@@ -18,11 +18,12 @@ char const *client_pipe_name;
 
 int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     /* TODO: Implement this */
+    /*
     //int r;
     ssize_t r1;
     int s_id;
     char *ptr;
-    char buf[2];
+    char buf[4];
     //char client_pipe[41];
     char request[SIZE_CLIENT_PIPE_PATH + 2];
 
@@ -37,20 +38,6 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     if ((fserv = open(server_pipe_path, O_WRONLY)) == -1) {
         exit(1);
     }
-    /*
-    if (strlen(client_pipe_path) > 40) {
-        printf("here\n");
-        strncpy(client_pipe, client_pipe_path, SIZE_CLIENT_PIPE_PATH);
-    }
-    else {
-        size_t size = strlen(client_pipe_path);
-        strcpy(client_pipe, client_pipe_path);
-        for (size_t i = size-1; i < 40; i++) {
-            client_pipe[size] = '\0';
-        }
-    }
-    r = snprintf(request, sizeof(request), "%c%40s", '1', client_pipe);
-    */
 
     request[0] = '1';
     strncpy(&request[1], client_pipe_path, SIZE_CLIENT_PIPE_PATH);
@@ -70,7 +57,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     }
 
     printf("after open\n");
-    r1 = read(fcli, buf, sizeof(char));
+    r1 = read(fcli, buf, sizeof(int));
     if (r1 <= 0) {
         return -1;
     }
@@ -87,10 +74,59 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     session_id = s_id;
     printf("Session id: %d\n", session_id);
     return 0;
+    */
+
+
+    /* NEW IMPLEMENTATION */
+    int s_id;
+    char op_code = '1';
+    char request[42];
+    memset(request, '\0', sizeof(request));
+
+    // Create client pipe.
+    unlink(client_pipe_path);
+    if (mkfifo(client_pipe_path, 0640) < 0) {
+        exit(1);
+    }
+    client_pipe_name = client_pipe_path;
+
+    // Write request to server pipe
+    if ((fserv = open(server_pipe_path, O_WRONLY)) == -1) {
+        exit(1);
+    }
+
+    request[0] = op_code;
+    strncpy(&request[1], client_pipe_path, SIZE_CLIENT_PIPE_PATH);
+
+    if (write(fserv, request, sizeof(char)*(SIZE_CLIENT_PIPE_PATH+1)) == -1) {
+        return -1;
+    }
+
+    // Read response from the client pipe.
+    if ((fcli = open(client_pipe_path, O_RDONLY)) == -1) {
+        exit(1);
+    }
+
+    if (read(fcli, &s_id, sizeof(int)) == -1) {
+        return -1;
+    }
+    
+    // Set the session_id.
+    if (s_id == -1) {
+        close(fserv);
+        close(fcli);
+        unlink(client_pipe_path);
+        return -1;
+    }
+
+    session_id = s_id;
+    printf("Session id: %d\n", session_id);
+    return 0;
 }
 
 int tfs_unmount() {
     /* TODO: Implement this */
+    /*
     int r;
     ssize_t r1;
     char *ptr;
@@ -123,6 +159,34 @@ int tfs_unmount() {
     close(fcli);
     unlink(client_pipe_name);
     return 0;
+    */
+
+    /* NEW IMPLEMENTATION */
+    int r;
+    char op_code = '2';
+    char request[5];
+    memset(request, '\0', sizeof(request));
+
+    request[0] = op_code;
+    memcpy(request+1, &session_id, sizeof(int));
+
+    if (write(fserv, request, sizeof(char)+sizeof(int)) == -1) {
+        return -1;
+    }
+
+    if (read(fcli, &r, sizeof(int)) == -1) {
+        return -1;
+    }
+
+    printf("return: %d\n", r);
+    if (r == -1) {
+        return r;
+    }
+
+    close(fserv);
+    close(fcli);
+    unlink(client_pipe_name);
+    return r;
 }
 
 int tfs_open(char const *name, int flags) {
