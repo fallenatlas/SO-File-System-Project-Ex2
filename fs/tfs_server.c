@@ -18,6 +18,8 @@
 static int number_active_sessions;
 static char free_sessions[S];
 static session_info sessions[S];
+// Mutex to protect above data.
+static pthread_mutex_t lock;
 
 void writeSucessToClient(int fclient) {
     char buf[4];
@@ -37,8 +39,12 @@ void processMount(int fclient, int session_id) {
 void processUnmount(int fclient, int session_id) {
     //TO DO: close client pipe, change number_active_sessions, free session
     printf("in unmount, %d, %d\n", fclient, session_id);
+    if (pthread_mutex_lock(&lock) != 0)
+        //return -1;
     free_sessions[session_id] = FREE;
     number_active_sessions--;
+    if (pthread_mutex_unlock(&lock) != 0)
+        //return -1;
     printf("before write in unmount\n");
     write(fclient, "0", sizeof(char));
     /*
@@ -52,18 +58,24 @@ void processUnmount(int fclient, int session_id) {
 
 void processOpen(int fclient, char *name, int flags) {
     //TO DO
+    int fhandle = tfs_open(name, flags);
 }
 
 void processClose(int fclient, int fhandle) {
     //TO DO
+    int r = tfs_close(fhandle);
 }
 
-void processWrite(int fclient, int fhandle, char *buffer, size_t size) {
+void processWrite(int fclient, int fhandle, char *buffer, size_t to_write) {
     //TO DO
+    ssize_t nbytes = tfs_write(fhandle, buffer, to_write);
 }
 
-void processRead(int fhandle, size_t size) {
-    //TO DO
+void processRead(int fhandle, size_t len) {
+    char *buffer = malloc(sizeof(char)*len);
+    ssize_t nbytes = tfs_read(fhandle, buffer, len);
+    //TO DO: send nbytes and buffer
+    free(buffer);
 }
 
 void processShutdown(int fclient) {
@@ -145,6 +157,9 @@ void prepareServer() {
     }
     number_active_sessions = 0;
 
+    if (pthread_mutex_init(&lock, 0) != 0)
+        exit(1);
+
     for (int s = 0; s < S; s++) {
         sessions[s].prodptr = 0;
         sessions[s].count = 0;
@@ -169,14 +184,20 @@ void prepareServer() {
 
 /* Add locks for free sessions */
 int findSessionId() {
+    if (pthread_mutex_lock(&lock) != 0)
+        return -1;
     if (number_active_sessions < S) {
         for (int i = 0; i < S; i++) {
             if (free_sessions[i] == FREE) {
                 number_active_sessions++;
+                if (pthread_mutex_unlock(&lock) != 0)
+                    return -1;
             return i;
             }
         }
     }
+    if(pthread_mutex_unlock(&lock) != 0)
+        return -1;
     return -1;
 }
 
