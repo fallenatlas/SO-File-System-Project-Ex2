@@ -97,7 +97,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     }
 
     request[0] = op_code;
-    strncpy(&request[1], client_pipe_path, SIZE_CLIENT_PIPE_PATH);
+    strncpy(&request[1], client_pipe_path, SIZE_CLIENT_PIPE_PATH*sizeof(char));
 
     if (write(fserv, request, sizeof(char)*(SIZE_CLIENT_PIPE_PATH+1)) == -1) {
         return -1;
@@ -112,6 +112,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
         return -1;
     }
     
+    printf("s_id: %d\n", s_id);
     // Set the session_id.
     if (s_id == -1) {
         close(fserv);
@@ -227,12 +228,14 @@ int tfs_open(char const *name, int flags) {
     char request[50];
     memset(request, '\0', sizeof(request));
     
-    request[0] = op_code;
+    //request[0] = op_code;
+    memcpy(request, &op_code, sizeof(char));
     memcpy(request+1, &session_id, sizeof(int));
-    strncpy(request+1+sizeof(int), name, SIZE_CLIENT_PIPE_PATH);
-    memcpy(request+1+sizeof(int)+40, &flags, sizeof(int));
+    strncpy(request+1+sizeof(int), name, SIZE_FILE_NAME_PATH*sizeof(char));
+    memcpy(request+1+sizeof(int)+(SIZE_FILE_NAME_PATH*sizeof(char)), &flags, sizeof(int));
 
-    if (write(fserv, request, sizeof(char)+sizeof(int)+40+sizeof(int)) == -1) {
+    //printf("open request: %s\n", request);
+    if (write(fserv, request, sizeof(char)+sizeof(int)+(SIZE_FILE_NAME_PATH*sizeof(char))+sizeof(int)) == -1) {
         return -1;
     }
 
@@ -323,15 +326,17 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
     /* NEW IMPLEMENTATION */
     ssize_t r;
     char op_code = '5';
-    char *request = (char*) malloc(len*sizeof(char));
+    //char request[4096];
+    char *request = (char*) malloc(sizeof(char)+sizeof(int)+sizeof(int)+sizeof(size_t)+len*sizeof(char));
 
     request[0] = op_code;
     memcpy(request+1, &session_id, sizeof(int));
     memcpy(request+1+sizeof(int), &fhandle, sizeof(int));
     memcpy(request+1+sizeof(int)+sizeof(int), &len, sizeof(size_t));
-    strncpy(request+1+sizeof(int)+sizeof(int)+sizeof(size_t), buffer, len);
+    strncpy(request+1+sizeof(int)+sizeof(int)+sizeof(size_t), buffer, len*sizeof(char));
 
-    if (write(fserv, request, request+1+sizeof(int)+sizeof(int)+sizeof(size_t)+len) == -1) {
+    //printf("write request: %s\n", request);
+    if (write(fserv, request, 1+sizeof(int)+sizeof(int)+sizeof(size_t)+(len*sizeof(char))) == -1) {
         return -1;
     }
 
@@ -339,6 +344,7 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
         return -1;
     }
 
+    free(request);
     printf("return write: %ld\n", r);
     return r;
 }
@@ -383,7 +389,7 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     /* NEW IMPLEMENTATION */
     ssize_t r;
     char op_code = '6';
-    char request[10];
+    char request[20];
     memset(request, '\0', sizeof(request));
 
     request[0] = op_code;
@@ -391,7 +397,7 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     memcpy(request+1+sizeof(int), &fhandle, sizeof(int));
     memcpy(request+1+sizeof(int)+sizeof(int), &len, sizeof(size_t));
 
-    if (write(fserv, request, request+1+sizeof(int)+sizeof(int)+sizeof(size_t)) == -1) {
+    if (write(fserv, request, 1+sizeof(int)+sizeof(int)+sizeof(size_t)) == -1) {
         return -1;
     }
 
@@ -400,7 +406,7 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     }
 
     printf("read: %ld\n", r);
-    if (read(fcli, buffer, sizeof(char)*(size_t)r) == -1) {
+    if (read(fcli, buffer, (sizeof(char)*(size_t)r)) == -1) {
         return -1;
     }
     
@@ -409,6 +415,7 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 
 int tfs_shutdown_after_all_closed() {
     /* TODO: Implement this */
+    /*
     int r;
     ssize_t r1;
     char *ptr;
@@ -431,5 +438,25 @@ int tfs_shutdown_after_all_closed() {
     }
 
     r = (int) strtol(buf, &ptr, 10);
+    return r;
+    */
+
+    /* NEW IMPLEMENTATION */
+    int r;
+    char op_code = '7';
+    char request[10];
+    memset(request, '\0', sizeof(request));
+
+    request[0] = op_code;
+    memcpy(request+1, &session_id, sizeof(int));
+
+    if (write(fserv, request, 1+sizeof(int)) == -1) {
+        return -1;
+    }
+
+    if (read(fcli, &r, sizeof(int)) == -1) {
+        return -1;
+    }
+
     return r;
 }

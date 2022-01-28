@@ -39,6 +39,7 @@ int main(int argc, char **argv) {
     assert(r == strlen(str));
 
     buffer[r] = '\0';
+    printf("buffer: %s\n", buffer);
     assert(strcmp(buffer, str) == 0);
 
     assert(tfs_close(f) != -1);
