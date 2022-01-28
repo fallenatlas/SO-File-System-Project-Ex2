@@ -4,6 +4,19 @@
 #include "common/common.h"
 #include <sys/types.h>
 
+#define SIZE_CLIENT_PIPE_PATH 40
+#define SIZE_FILE_NAME_PATH 40
+#define MAX_SHUTDOWN_REQUEST 10
+#define MAX_READ_REQUEST 20
+#define MAX_CLOSE_REQUEST 10
+#define MAX_OPEN_REQUEST 50
+#define MAX_UNMOUNT_REQUEST 5 
+#define MAX_MOUNT_REQUEST 42  
+#define SIZE_SHUTDOWN (sizeof(int)+sizeof(char))
+#define SIZE_READ (sizeof(char)+(2*sizeof(int))+sizeof(size_t))
+#define SIZE_WRITE (sizeof(char)+(2*sizeof(int)))
+#define SIZE_CLOSE (sizeof(char)+(2*sizeof(int)))
+#define SIZE_UNMOUNT (sizeof(char)+sizeof(int))
 /*
  * Establishes a session with a TecnicoFS server.
  * Input:

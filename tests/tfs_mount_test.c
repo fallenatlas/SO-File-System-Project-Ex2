@@ -19,12 +19,12 @@ int main(int argc, char **argv) {
     int f;
 
     assert(tfs_mount(argv[1], argv[2]) == 0);
-
+    printf("successful mount\n");
     f = tfs_open(path, TFS_O_CREAT);
     assert(f != -1);
-
+    printf("successful open\n");
     assert(tfs_unmount() == 0);
-
+    printf("successful unmount\n");
     printf("Successful test.\n");
 
     return 0;
