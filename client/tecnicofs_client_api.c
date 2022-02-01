@@ -8,11 +8,20 @@
 #include <sys/stat.h> // -> mkfifo
 #include <fcntl.h> // -> 0_RDONLY
 #include <errno.h>
+#include <signal.h>
 
 int session_id;
 int fserv;
 int fcli;
 char const *client_pipe_name;
+
+ssize_t send_msg(char const *request, size_t len) {
+    ssize_t ret;
+    do {
+       ret = write(fserv, request, len); 
+    } while (ret < 0 && errno == EINTR);
+    return ret;
+}
 
 int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     int s_id;
@@ -34,25 +43,32 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     }
     client_pipe_name = client_pipe_path;
 
-    // Write request to server pipe
-    if ((fserv = open(server_pipe_path, O_WRONLY)) == -1) {
+    do {
+        fserv = open(server_pipe_path, O_WRONLY);
+    } while(fserv == -1 && errno == EINTR);
+        
+    if (fserv == -1){
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
+    // Write request to server pipe
     request[0] = op_code;
     strncpy(&request[1], client_pipe_path, SIZE_CLIENT_PIPE_PATH*sizeof(char));
-
-    if (write(fserv, request, sizeof(char)*(SIZE_CLIENT_PIPE_PATH+1)) == -1) {
+    if (send_msg(request, sizeof(char)*(SIZE_CLIENT_PIPE_PATH+1)) < 0)
         return -1;
-    }
-    printf("before opening client pipe\n");
 
     // Read response from the client pipe.
-    if ((fcli = open(client_pipe_path, O_RDONLY)) == -1) {
+    do {
+        fcli = open(client_pipe_path, O_RDONLY);
+    } while(fcli == -1 && errno == EINTR);
+        
+    if (fcli == -1) {
+        close(fserv);
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
+    
     printf("after opening client pipe\n");
     if (read(fcli, &s_id, sizeof(int)) == -1) {
         return -1;
@@ -81,9 +97,8 @@ int tfs_unmount() {
     request[0] = op_code;
     memcpy(request+sizeof(char), &session_id, sizeof(int));
 
-    if (write(fserv, request, SIZE_UNMOUNT) == -1) {
+    if (send_msg(request, SIZE_UNMOUNT) < 0)
         return -1;
-    }
 
     if (read(fcli, &r, sizeof(int)) == -1) {
         return -1;
@@ -106,16 +121,13 @@ int tfs_open(char const *name, int flags) {
     char request[MAX_OPEN_REQUEST];
     memset(request, '\0', sizeof(request));
     
-    //request[0] = op_code;
     memcpy(request, &op_code, sizeof(char));
     memcpy(request+sizeof(char), &session_id, sizeof(int));
     strncpy(request+sizeof(char)+sizeof(int), name, SIZE_FILE_NAME_PATH*sizeof(char));
     memcpy(request+sizeof(char)+sizeof(int)+(SIZE_FILE_NAME_PATH*sizeof(char)), &flags, sizeof(int));
 
-    //printf("open request: %s\n", request);
-    if (write(fserv, request, sizeof(char)+sizeof(int)+(SIZE_FILE_NAME_PATH*sizeof(char))+sizeof(int)) == -1) {
+    if(send_msg(request, sizeof(char)+sizeof(int)+(SIZE_FILE_NAME_PATH*sizeof(char))+sizeof(int)) < 0)
         return -1;
-    }
 
     if (read(fcli, &fhandle, sizeof(int)) == -1) {
         return -1;
@@ -135,9 +147,8 @@ int tfs_close(int fhandle) {
     memcpy(request+sizeof(char), &session_id, sizeof(int));
     memcpy(request+sizeof(char)+sizeof(int), &fhandle, sizeof(int));
 
-    if (write(fserv, request, SIZE_CLOSE) == -1) {
+    if (send_msg(request, SIZE_CLOSE) < 0)
         return -1;
-    }
 
     if (read(fcli, &r, sizeof(int)) == -1) {
         return -1;
@@ -159,10 +170,8 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
     memcpy(request+sizeof(char)+sizeof(int)+sizeof(int), &len, sizeof(size_t));
     strncpy(request+sizeof(char)+sizeof(int)+sizeof(int)+sizeof(size_t), buffer, len*sizeof(char));
 
-    //printf("write request: %s\n", request);
-    if (write(fserv, request, SIZE_WRITE+sizeof(size_t)+(len*sizeof(char))) == -1) {
+    if (send_msg(request, SIZE_WRITE+sizeof(size_t)+(len*sizeof(char))) < 0)
         return -1;
-    }
 
     if (read(fcli, &r, sizeof(ssize_t)) == -1) {
         return -1;
@@ -184,9 +193,8 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     memcpy(request+sizeof(char)+sizeof(int), &fhandle, sizeof(int));
     memcpy(request+sizeof(char)+sizeof(int)+sizeof(int), &len, sizeof(size_t));
 
-    if (write(fserv, request, SIZE_READ) == -1) {
+    if (send_msg(request, SIZE_READ) < 0)
         return -1;
-    }
 
     if (read(fcli, &r, sizeof(ssize_t)) == -1) {
         return -1;
@@ -209,9 +217,8 @@ int tfs_shutdown_after_all_closed() {
     request[0] = op_code;
     memcpy(request+sizeof(char), &session_id, sizeof(int));
 
-    if (write(fserv, request, SIZE_SHUTDOWN) == -1) {
+    if (send_msg(request, SIZE_SHUTDOWN) < 0)
         return -1;
-    }
 
     if (read(fcli, &r, sizeof(int)) == -1) {
         return -1;
