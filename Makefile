@@ -14,7 +14,7 @@ INCLUDES = $(addprefix -I, $(INCLUDE_DIRS))
 SOURCES  := $(wildcard */*.c)
 HEADERS  := $(wildcard */*.h)
 OBJECTS  := $(SOURCES:.c=.o)
-TARGET_EXECS := fs/tfs_server tests/lib_destroy_after_all_closed_test tests/client_server_simple_test tests/lib_destroy_after_all_closed_cicle_test tests/tfs_mount_test
+TARGET_EXECS := fs/tfs_server tests/lib_destroy_after_all_closed_test tests/client_server_simple_test tests/lib_destroy_after_all_closed_cicle_test tests/tfs_mount_test  tests/client_server_test_simple_1 tests/client_server_test_simple_2 tests/client_server_test_simple_3 tests/client_server_test_simple_4
 
 # VPATH is a variable used by Makefile which finds *sources* and makes them available throughout the codebase
 # vpath %.h <DIR> tells make to look for header files in <DIR>
@@ -71,6 +71,10 @@ fs/tfs_server: fs/operations.o fs/state.o
 tests/lib_destroy_after_all_closed_test: fs/operations.o fs/state.o
 tests/lib_destroy_after_all_closed_cicle_test: fs/operations.o fs/state.o
 tests/tfs_mount_test: client/tecnicofs_client_api.o
+tests/client_server_test_simple_1: tests/client_server_test_simple_1.o client/tecnicofs_client_api.o
+tests/client_server_test_simple_2: tests/client_server_test_simple_2.o client/tecnicofs_client_api.o
+tests/client_server_test_simple_3: tests/client_server_test_simple_3.o client/tecnicofs_client_api.o
+tests/client_server_test_simple_4: tests/client_server_test_simple_4.o client/tecnicofs_client_api.o
 
 clean:
 	rm -f $(OBJECTS) $(TARGET_EXECS)

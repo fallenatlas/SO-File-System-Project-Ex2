@@ -47,6 +47,8 @@ void terminateClientSession(int session_id) {
 
 void shutdownServer() {
     //TO DO
+    //close(fserv);
+    exit(EXIT_FAILURE);
 }
 
 void processMount(int fclient, int session_id) {
@@ -91,9 +93,9 @@ void processClose(int fclient, int session_id, int fhandle) {
 }
 
 void processWrite(int fclient, int session_id, int fhandle, char *buffer, size_t to_write) {
-    ssize_t nbytes = tfs_write(fhandle, buffer, to_write);
+    int nbytes = (int) tfs_write(fhandle, buffer, to_write);
     //printf("nbytes: %d\n", nbytes);
-    if (write(fclient, &nbytes, sizeof(ssize_t)) == -1) {
+    if (write(fclient, &nbytes, sizeof(int)) == -1) {
         printf("Unreachable Client: Terminating Session %d\n", session_id);
         terminateClientSession(session_id);
         close(fclient);
@@ -105,16 +107,16 @@ void processRead(int fclient, int session_id, int fhandle, size_t len) {
     char *buffer = malloc(sizeof(char)*len);
     if (buffer == NULL)
         exit(EXIT_FAILURE);
-    ssize_t nbytes = tfs_read(fhandle, buffer, len);
+    int nbytes = (int) tfs_read(fhandle, buffer, len);
     //buffer[nbytes] = '\0';
     //printf("buffer in server: %d, %s\n", nbytes, buffer);
     char *response = (char*) malloc(sizeof(int)+((size_t)nbytes*sizeof(char)));
     if (response == NULL)
         exit(EXIT_FAILURE);
 
-    memcpy(response, &nbytes, sizeof(ssize_t));
-    strncpy(response+sizeof(ssize_t), buffer, sizeof(char)*(size_t)nbytes);
-    if (write(fclient, response, sizeof(ssize_t)+(sizeof(char)*(size_t)nbytes)) == -1) {
+    memcpy(response, &nbytes, sizeof(int));
+    strncpy(response+sizeof(int), buffer, sizeof(char)*(size_t)nbytes);
+    if (write(fclient, response, sizeof(int)+(sizeof(char)*(size_t)nbytes)) == -1) {
         printf("Unreachable Client: Terminating Session %d\n", session_id);
         terminateClientSession(session_id);
         close(fclient);
@@ -133,6 +135,7 @@ void processShutdown(int fclient, int session_id) {
         close(fclient);
     }
     close(fserv);
+    exit(EXIT_SUCCESS);
     // don't forget to actually shutdown the server plsss
 }
 
@@ -296,6 +299,7 @@ int mountProducer() {
     if (session_id == -1) {
         sendErrorToClient(fclient);
         close(fclient);
+        return -1;
     }
     sessions[session_id].fcli = fclient;
     r_args *request = get_request(session_id);
@@ -505,6 +509,7 @@ int main(int argc, char **argv) {
         
     if (fserv == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
+        //shutdownServer();
         exit(EXIT_FAILURE);
     }
     // Server reads requests from clients
