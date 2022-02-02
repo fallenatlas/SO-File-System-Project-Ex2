@@ -16,11 +16,10 @@
 
 
 static int number_active_sessions;
-static char free_sessions[S];
+static char free_sessions[S];  // Indicates which sessions are free
 static session_info sessions[S];
-// Mutex to protect above data.
-static pthread_mutex_t lock;
-static int fserv;
+static pthread_mutex_t lock; // Mutex to protect above data.
+static int fserv; // Server pipe
 
 void sendSucessToClient(int fclient) {
     int return_value = 0;
@@ -36,13 +35,14 @@ void sendErrorToClient(int fclient) {
     }
 }
 
+// Free's a session
 void terminateClientSession(int session_id) {
     if (pthread_mutex_lock(&lock) != 0) {}
-        //return -1;
+        shutdownServer();
     free_sessions[session_id] = FREE;
     number_active_sessions--;
     if (pthread_mutex_unlock(&lock) != 0) {}
-        //return -1;
+        shutdownServer();
 }
 
 void shutdownServer() {
@@ -53,9 +53,9 @@ void shutdownServer() {
 
 void processMount(int fclient, int session_id) {
     int s_id = session_id;
-    if (sessions[session_id].count > 1) {
+    /*if (sessions[session_id].count > 1) {
         sessions[session_id].count = 1;
-    }
+    }*/
     if (write(fclient, &s_id, sizeof(int)) == -1) {
         printf("Unreachable Client: Terminating Session %d\n", session_id);
         terminateClientSession(session_id);
@@ -279,36 +279,48 @@ int findSessionId() {
     return -1;
 }
 
-
-int mountProducer() {
+/*
+ * Reads mount requests and sends it to respective
+ * thread to process it
+ */
+void mountProducer() {
     int fclient;
     int session_id;
     char client_pipe[SIZE_CLIENT_PIPE_PATH];
 
     if (read(fserv, client_pipe, sizeof(char)*SIZE_CLIENT_PIPE_PATH) == -1) {
-        return -1;
+        return;
     }
 
     printf("client pipe: %s\n", client_pipe);
-    if ((fclient = open(client_pipe, O_WRONLY)) == -1) {
-        fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
+    // Open client pipe
+    do {
+        fclient = open(client_pipe, O_WRONLY);
+    } while(fserv == -1 && errno == EINTR);
+        
+    if (fclient == -1){
+        return;
     }
+
     // Try to associate a session to client
     session_id = findSessionId();
     if (session_id == -1) {
         sendErrorToClient(fclient);
         close(fclient);
-        return -1;
+        return;
     }
     sessions[session_id].fcli = fclient;
     r_args *request = get_request(session_id);
     request->op_code = TFS_OP_CODE_MOUNT;
     sendRequestToThread(session_id);
     printf("finished mount, %d\n", sessions[session_id].fcli);
-    return 0;
+    return;
 }
 
+/*
+ * Reads unmount requests and sends it to respective
+ * thread to process it
+ */
 void unmountProducer() {
     int session_id;
     if (read(fserv, &session_id, sizeof(int)) == -1) {
@@ -320,6 +332,11 @@ void unmountProducer() {
     sendRequestToThread(session_id);
     printf("finished unmount\n");
 }
+
+/*
+ * Reads open requests and sends it to respective
+ * thread to process it
+ */
 void openProducer() {
     int session_id;
     if (read(fserv, &session_id, sizeof(int)) == -1) {
@@ -343,6 +360,10 @@ void openProducer() {
     printf("finished open\n");
 }
 
+/*
+ * Reads close requests and sends it to respective
+ * thread to process it
+ */
 void closeProducer() {
     int session_id;
     if (read(fserv, &session_id, sizeof(int)) == -1) {
@@ -360,6 +381,10 @@ void closeProducer() {
     printf("finished close\n");
 }
 
+/*
+ * Reads write requests and sends it to respective
+ * thread to process it
+ */
 void writeProducer() {
     int session_id;
     if (read(fserv, &session_id, sizeof(int)) == -1) {
@@ -380,7 +405,7 @@ void writeProducer() {
     printf("len: %ld\n", request->size);
     request->buffer = (char*) malloc(sizeof(char)*(request->size));
     if (request->buffer == NULL)
-        exit(EXIT_FAILURE);
+        shutdownServer();
     if (read(fserv, request->buffer, sizeof(char)*(request->size)) == -1) {
         printf("send error\n");
         sendErrorToClient(sessions[session_id].fcli);
@@ -390,6 +415,10 @@ void writeProducer() {
     printf("finished write\n");
 }
 
+/*
+ * Reads read requests and sends it to respective
+ * thread to process it
+ */
 void readProducer() {
     int session_id;
     if (read(fserv, &session_id, sizeof(int)) == -1) {
@@ -410,6 +439,10 @@ void readProducer() {
     printf("finished read\n");
 }
 
+/*
+ * Reads shutdown requests and sends it to respective
+ * thread to process it
+ */
 void shutdownProducer() {
     int session_id;
     if (read(fserv, &session_id, sizeof(int)) == -1) {
@@ -423,20 +456,15 @@ void shutdownProducer() {
 
 }
 
+/*
+ * Determine type of request and calls function to produce
+ * request for thread
+ */
 void processRequest(char *char_opcode) {
     int op_code;
     char *ptr;
     op_code = (int) strtol(char_opcode, &ptr, 10);
 
-    /* Allocates memory for new request
-    r_args *request = (r_args*) malloc(sizeof(r_args));
-    if (request == NULL) {
-        shutdown_server();
-        exit(EXIT_FAILURE);
-    }
-    request->op_code = op_code;*/
-    // Determine type of request and calls function to produce
-    // request for thread
     switch(op_code) {
         case TFS_OP_CODE_MOUNT :
             printf("op: %d, mount\n", op_code);
@@ -487,7 +515,7 @@ int main(int argc, char **argv) {
 
     //int fserv;
     char opcode[1];
-    signal(SIGPIPE, SIG_IGN);
+    //signal(SIGPIPE, SIG_IGN);
 
     if (unlink(pipename) != 0 && errno != ENOENT) {
         fprintf(stderr, "[ERR]: unlink(%s) failed: %s\n", pipename,
@@ -503,15 +531,16 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
+    // Open server pipe
     do {
         fserv = open(pipename, O_RDONLY);
     } while(fserv == -1 && errno == EINTR);
         
     if (fserv == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
-        //shutdownServer();
         exit(EXIT_FAILURE);
     }
+
     // Server reads requests from clients
     ssize_t r;
     while (1) {
@@ -534,9 +563,8 @@ int main(int argc, char **argv) {
         }
         else if (r == -1) {
             // Couldn't read opcode
-            shutdownServer();
             fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
-            exit(EXIT_FAILURE);
+            shutdownServer();
         }
         processRequest(opcode);
     }

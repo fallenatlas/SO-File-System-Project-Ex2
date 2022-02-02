@@ -10,11 +10,16 @@
 #include <errno.h>
 #include <signal.h>
 
-int session_id;
-int fserv;
-int fcli;
+int session_id; // Client session id
+int fserv; // Server pipe
+int fcli; // Client pipe
 char const *client_pipe_name;
 
+/*
+ * Writes a message in server pipe and retry if possible
+ * Returns write return value -1 if an error ocurred
+ * during writing.
+ */
 ssize_t send_msg(char const *request, size_t len) {
     ssize_t ret;
     do {
@@ -23,14 +28,37 @@ ssize_t send_msg(char const *request, size_t len) {
     return ret;
 }
 
+/*
+ * Reads an integer in server pipe and retry if possible
+ * Returns read return value -1 if an error ocurred
+ * during reading.
+ */
 ssize_t receive_msg(int *r) {
     ssize_t read_check;
     do {
         read_check = read(fcli, r, sizeof(int));
-        if (read_check == 0) 
+        if (read_check == 0)
+            // Server closed write end of client pipe
             exit(EXIT_FAILURE);
     } while (read_check == -1 && errno == EINTR);
     return read_check;
+}
+
+/*
+ * Reads a string in server pipe and retry if possible
+ * Returns read return value -1 if an error ocurred
+ * during reading.
+ */
+ssize_t receive_buffer(char *buffer, size_t r) {
+    ssize_t read_check;
+    do {
+        read_check = read(fcli, buffer, (sizeof(char)*r));
+        if (read_check == 0)
+            // Server closed client pipe
+            exit(EXIT_FAILURE);
+    } while (read_check == -1 && errno == EINTR);
+    return read_check;
+
 }
 
 int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
@@ -54,6 +82,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     client_pipe_name = client_pipe_path;
 
     printf("going to open server pipe\n");
+    // Open client pipe
     do {
         fserv = open(server_pipe_path, O_WRONLY);
     } while(fserv == -1 && errno == EINTR);
@@ -68,9 +97,10 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     request[0] = op_code;
     strncpy(&request[1], client_pipe_path, SIZE_CLIENT_PIPE_PATH*sizeof(char));
     if (send_msg(request, sizeof(char)*(SIZE_CLIENT_PIPE_PATH+1)) < 0)
+        // Write failed
         return -1;
 
-    // Read response from the client pipe.
+    // Open server pipe
     do {
         fcli = open(client_pipe_path, O_RDONLY);
     } while(fcli == -1 && errno == EINTR);
@@ -82,7 +112,9 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     }
     
     printf("after opening client pipe\n");
+    // Read response from the client pipe.
     if (receive_msg(&s_id) == -1)
+        // Read failed
         return -1;
 
     printf("s_id: %d\n", s_id);
@@ -109,9 +141,11 @@ int tfs_unmount() {
     memcpy(request+sizeof(char), &session_id, sizeof(int));
 
     if (send_msg(request, SIZE_UNMOUNT) < 0)
+        // Write failed
         return -1;
 
     if (receive_msg(&r) == -1)
+        // Read failed
         return -1;
 
     printf("return: %d\n", r);
@@ -137,9 +171,11 @@ int tfs_open(char const *name, int flags) {
     memcpy(request+sizeof(char)+sizeof(int)+(SIZE_FILE_NAME_PATH*sizeof(char)), &flags, sizeof(int));
 
     if(send_msg(request, sizeof(char)+sizeof(int)+(SIZE_FILE_NAME_PATH*sizeof(char))+sizeof(int)) < 0)
+        // Write failed
         return -1;
 
     if (receive_msg(&fhandle) == -1)
+        // Read failed
         return -1;
 
     printf("fhandle: %d\n", fhandle);
@@ -157,9 +193,11 @@ int tfs_close(int fhandle) {
     memcpy(request+sizeof(char)+sizeof(int), &fhandle, sizeof(int));
 
     if (send_msg(request, SIZE_CLOSE) < 0)
+        // Write failed
         return -1;
 
     if (receive_msg(&r) == -1)
+        // Read failed
         return -1;
 
     printf("return close: %d\n", r);
@@ -178,11 +216,17 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
     memcpy(request+sizeof(char)+sizeof(int)+sizeof(int), &len, sizeof(size_t));
     strncpy(request+sizeof(char)+sizeof(int)+sizeof(int)+sizeof(size_t), buffer, len*sizeof(char));
 
-    if (send_msg(request, SIZE_WRITE+sizeof(size_t)+(len*sizeof(char))) < 0)
+    if (send_msg(request, SIZE_WRITE+sizeof(size_t)+(len*sizeof(char))) < 0) {
+        // Write failed
+        free(request);
         return -1;
+    }
 
-    if (receive_msg(&r) == -1)
+    if (receive_msg(&r) == -1) {
+        // Read failed
+        free(request);
         return -1;
+    }
 
     free(request);
     printf("return write: %d\n", r);
@@ -191,7 +235,6 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
 
 ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     int r;
-    ssize_t read_check;
     char op_code = '6';
     char request[MAX_READ_REQUEST];
     memset(request, '\0', sizeof(request));
@@ -202,17 +245,19 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     memcpy(request+sizeof(char)+sizeof(int)+sizeof(int), &len, sizeof(size_t));
 
     if (send_msg(request, SIZE_READ) < 0)
+        // Write failed
         return -1;
 
     if (receive_msg(&r) == -1)
+        // Read failed
         return -1;
 
     printf("read: %d\n", r);
-    do {
-        read_check = read(fcli, buffer, (sizeof(char)*(size_t)r));
-        if (read_check == 0) 
-            exit(EXIT_FAILURE);
-    } while (read_check == -1 && errno == EINTR);
+    // Read buffer that was requested to read
+    if (receive_buffer(buffer, (size_t)r) == -1)
+        // Read failed
+        return -1;
+    
 
     return (ssize_t) r;
 }
@@ -227,9 +272,11 @@ int tfs_shutdown_after_all_closed() {
     memcpy(request+sizeof(char), &session_id, sizeof(int));
 
     if (send_msg(request, SIZE_SHUTDOWN) < 0)
+        // Write failed
         return -1;
 
     if (receive_msg(&r) == -1)
+        // Read failed
         return -1;
 
     return r;
