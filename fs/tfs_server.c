@@ -136,6 +136,7 @@ void processWrite(int fclient, int session_id, int fhandle, char *buffer, size_t
 }
 
 void processRead(int fclient, int session_id, int fhandle, size_t len) {
+    ssize_t write_check;
     char *buffer = malloc(sizeof(char)*len);
     if (buffer == NULL)
         exit(EXIT_FAILURE);
@@ -148,10 +149,13 @@ void processRead(int fclient, int session_id, int fhandle, size_t len) {
 
     memcpy(response, &nbytes, sizeof(int));
     strncpy(response+sizeof(int), buffer, sizeof(char)*(size_t)nbytes);
-    if (write(fclient, response, sizeof(int)+(sizeof(char)*(size_t)nbytes)) == -1) {
+    do {
+        write_check = write(fclient, response, sizeof(int)+(sizeof(char)*(size_t)nbytes));
+    } while (write_check == -1 && errno == EINTR);
+    if (write_check == -1) {
         printf("Unreachable Client: Terminating Session %d\n", session_id);
         terminateClientSession(session_id);
-        close(fclient);
+        tryClose(fclient);
     }
 
     free(buffer);
