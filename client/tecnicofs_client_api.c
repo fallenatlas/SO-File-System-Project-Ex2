@@ -58,7 +58,6 @@ ssize_t receive_buffer(char *buffer, size_t r) {
             exit(EXIT_FAILURE);
     } while (read_check == -1 && errno == EINTR);
     return read_check;
-
 }
 
 int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
