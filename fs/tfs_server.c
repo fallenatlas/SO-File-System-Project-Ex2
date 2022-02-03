@@ -21,6 +21,63 @@ static session_info sessions[S];
 static pthread_mutex_t lock; // Mutex to protect above data.
 static int fserv; // Server pipe
 
+void assignHandler() {
+    struct sigaction sa;
+    sa.sa_handler = SIG_IGN;
+    sigemptyset(&sa.sa_mask);
+    if (sigaction(SIGPIPE, &sa, NULL) == -1) {
+        exit(EXIT_FAILURE);
+    }
+}
+
+ssize_t readInt(int *ri) {
+    ssize_t read_check;
+    do {
+        read_check = read(fserv, ri, sizeof(int));
+    } while (read_check == -1 && errno == EINTR);
+    return read_check;
+}
+
+ssize_t writeInt(int fclient, int wi) {
+    ssize_t write_check;
+    do {
+        write_check = write(fclient, &wi, sizeof(int));
+    } while (write_check == -1 && errno == EINTR);
+    return write_check;
+}
+
+void shutdownServer() {
+    //TO DO
+    //close(fserv);
+    exit(EXIT_FAILURE);
+}
+
+// Free's a session
+void terminateClientSession(int session_id) {
+    if (pthread_mutex_lock(&lock) != 0) {
+        shutdownServer();
+    }
+    free_sessions[session_id] = FREE;
+    number_active_sessions--;
+    if (pthread_mutex_unlock(&lock) != 0) {
+        shutdownServer();
+    }
+}
+
+void tryClose(int fclient) {
+    if (close(fclient) == -1) {
+        printf("[ERR] Close failed: %s\n", strerror(errno));
+    }
+}
+
+void tryWriteInt(int fclient, int session_id, int wi) {
+    if (writeInt(fclient, wi) == -1) {
+        printf("Unreachable Client: Terminating Session %d\n", session_id);
+        terminateClientSession(session_id);
+        tryClose(fclient);
+    }
+}
+
 void sendSucessToClient(int fclient) {
     int return_value = 0;
     if (write(fclient, &return_value, sizeof(int)) == -1) {
@@ -35,71 +92,29 @@ void sendErrorToClient(int fclient) {
     }
 }
 
-// Free's a session
-void terminateClientSession(int session_id) {
-    if (pthread_mutex_lock(&lock) != 0) {}
-        shutdownServer();
-    free_sessions[session_id] = FREE;
-    number_active_sessions--;
-    if (pthread_mutex_unlock(&lock) != 0) {}
-        shutdownServer();
-}
-
-void shutdownServer() {
-    //TO DO
-    //close(fserv);
-    exit(EXIT_FAILURE);
-}
-
 void processMount(int fclient, int session_id) {
-    int s_id = session_id;
-    /*if (sessions[session_id].count > 1) {
-        sessions[session_id].count = 1;
-    }*/
-    if (write(fclient, &s_id, sizeof(int)) == -1) {
-        printf("Unreachable Client: Terminating Session %d\n", session_id);
-        terminateClientSession(session_id);
-        close(fclient);
-        /*
-        if (close(fclient) == -1) {
-            printf("[ERR]: close failed: %s\n", strerror(errno));
-        }
-        */
-    }
+    tryWriteInt(fclient, session_id, session_id);
 }
 
 void processUnmount(int fclient, int session_id) {
     terminateClientSession(session_id);
     sendSucessToClient(fclient);
-    close(fclient);
+    tryClose(fclient);
 }
 
 void processOpen(int fclient, int session_id, char *name, int flags) {
     int fhandle = tfs_open(name, flags);
-    if (write(fclient, &fhandle, sizeof(int)) == -1) {
-        printf("Unreachable Client: Terminating Session %d\n", session_id);
-        terminateClientSession(session_id);
-        close(fclient);
-    }
+    tryWriteInt(fclient, session_id, fhandle);
 }
 
 void processClose(int fclient, int session_id, int fhandle) {
     int r = tfs_close(fhandle);
-    if (write(fclient, &r, sizeof(int)) == -1) {
-        printf("Unreachable Client: Terminating Session %d\n", session_id);
-        terminateClientSession(session_id);
-        close(fclient);
-    }
+    tryWriteInt(fclient, session_id, r);
 }
 
 void processWrite(int fclient, int session_id, int fhandle, char *buffer, size_t to_write) {
     int nbytes = (int) tfs_write(fhandle, buffer, to_write);
-    //printf("nbytes: %d\n", nbytes);
-    if (write(fclient, &nbytes, sizeof(int)) == -1) {
-        printf("Unreachable Client: Terminating Session %d\n", session_id);
-        terminateClientSession(session_id);
-        close(fclient);
-    }
+    tryWriteInt(fclient, session_id, nbytes);
     free(buffer);
 }
 
@@ -129,12 +144,8 @@ void processRead(int fclient, int session_id, int fhandle, size_t len) {
 
 void processShutdown(int fclient, int session_id) {
     int r = tfs_destroy_after_all_closed();
-    if (write(fclient, &r, sizeof(int)) == -1) {
-        printf("Unreachable Client: Terminating Session %d\n", session_id);
-        terminateClientSession(session_id);
-        close(fclient);
-    }
-    close(fserv);
+    tryWriteInt(fclient, session_id, r);
+    tryClose(fserv);
     exit(EXIT_SUCCESS);
     // don't forget to actually shutdown the server plsss
 }
@@ -177,6 +188,7 @@ void threadProcessRequest(int session_id) {
 void *working_thread(void *arg){
     int id = *((int *) arg);
     free(arg);
+    assignHandler();
     //int consptr = 0;
     while (1) {
         if (pthread_mutex_lock(&sessions[id].prod_cons_mutex) != 0)
@@ -286,12 +298,21 @@ int findSessionId() {
 void mountProducer() {
     int fclient;
     int session_id;
+    ssize_t read_check;
     char client_pipe[SIZE_CLIENT_PIPE_PATH];
 
+    do {
+        read_check = read(fserv, client_pipe, sizeof(char)*SIZE_CLIENT_PIPE_PATH);
+    } while (read_check == -1 && errno == EINTR);
+    if (read_check <= 0) {
+        return;
+        // or exit?
+    }
+    /*
     if (read(fserv, client_pipe, sizeof(char)*SIZE_CLIENT_PIPE_PATH) == -1) {
         return;
     }
-
+    */
     printf("client pipe: %s\n", client_pipe);
     // Open client pipe
     do {
@@ -306,7 +327,7 @@ void mountProducer() {
     session_id = findSessionId();
     if (session_id == -1) {
         sendErrorToClient(fclient);
-        close(fclient);
+        tryClose(fclient);
         return;
     }
     sessions[session_id].fcli = fclient;
@@ -323,9 +344,14 @@ void mountProducer() {
  */
 void unmountProducer() {
     int session_id;
+    if (readInt(&session_id) <= 0) {
+        return;
+    }
+    /*
     if (read(fserv, &session_id, sizeof(int)) == -1) {
         //sendErrorToClient(sessions[session_id].fcli);
     }
+    */
     printf("session_id: %d\n", session_id);
     r_args *request = get_request(session_id);
     request->op_code = TFS_OP_CODE_UNMOUNT;
@@ -339,22 +365,44 @@ void unmountProducer() {
  */
 void openProducer() {
     int session_id;
+    ssize_t read_check;
+    if (readInt(&session_id) <= 0) {
+        return;
+    }
+    /*
     if (read(fserv, &session_id, sizeof(int)) == -1) {
         //sendErrorToClient(sessions[session_id].fcli);
     }
+    */
     printf("session_id: %d\n", session_id);
 
     r_args *request = get_request(session_id);
     request->op_code = TFS_OP_CODE_OPEN;
+    do {
+        read_check = read(fserv, request->file_name, SIZE_FILE_NAME*sizeof(char));
+    } while (read_check == -1 && errno == EINTR);
+    if (read_check <= 0) {
+        printf("send error\n");
+        sendErrorToClient(sessions[session_id].fcli);
+        return;
+    }
+    /*
     if (read(fserv, request->file_name, SIZE_FILE_NAME*sizeof(char)) == -1) {
         printf("send error\n");
         sendErrorToClient(sessions[session_id].fcli);
     }
+    */
     printf("file name: %s\n", request->file_name);
+    if (readInt(&request->flags) <= 0) {
+        printf("send error\n");
+        sendErrorToClient(sessions[session_id].fcli);
+    }
+    /*
     if (read(fserv, &request->flags, sizeof(int)) == -1) {
         printf("send error\n");
         sendErrorToClient(sessions[session_id].fcli);
     }
+    */
     printf("flags: %d\n", request->flags);
     sendRequestToThread(session_id);
     printf("finished open\n");
@@ -366,16 +414,27 @@ void openProducer() {
  */
 void closeProducer() {
     int session_id;
+    if (readInt(&session_id) <= 0) {
+        return;
+    }
+    /*
     if (read(fserv, &session_id, sizeof(int)) == -1) {
         //sendErrorToClient(sessions[session_id].fcli);
     }
+    */
     printf("session_id: %d\n", session_id);
 
     r_args *request = get_request(session_id);
     request->op_code = TFS_OP_CODE_CLOSE;
+    if (readInt(&request->fhandle) <= 0) {
+        sendErrorToClient(sessions[session_id].fcli);
+        return;
+    }
+    /*
     if (read(fserv, &request->fhandle, sizeof(int)) == -1) {
         sendErrorToClient(sessions[session_id].fcli);
     }
+    */
     printf("fhandle: %d\n", request->fhandle);
     sendRequestToThread(session_id);
     printf("finished close\n");
@@ -387,17 +446,32 @@ void closeProducer() {
  */
 void writeProducer() {
     int session_id;
+    ssize_t read_check;
+    if (readInt(&session_id) <= 0) {
+        return;
+    }
+    /*
     if (read(fserv, &session_id, sizeof(int)) == -1) {
         //sendErrorToClient(sessions[session_id].fcli);
     }
+    */
     printf("session_id: %d\n", session_id);
     r_args *request = get_request(session_id);
     request->op_code = TFS_OP_CODE_WRITE;
+    if (readInt(&request->fhandle) <= 0) {
+        sendErrorToClient(sessions[session_id].fcli);
+        return;
+    }
+    /*
     if (read(fserv, &request->fhandle, sizeof(int)) == -1) {
         printf("send error\n");
         sendErrorToClient(sessions[session_id].fcli);
     }
+    */
     printf("fhandle: %d\n", request->fhandle);
+
+
+
     if (read(fserv, &request->size, sizeof(size_t)) == -1) {
         printf("send error\n");
         sendErrorToClient(sessions[session_id].fcli);
@@ -406,6 +480,11 @@ void writeProducer() {
     request->buffer = (char*) malloc(sizeof(char)*(request->size));
     if (request->buffer == NULL)
         shutdownServer();
+
+
+
+
+
     if (read(fserv, request->buffer, sizeof(char)*(request->size)) == -1) {
         printf("send error\n");
         sendErrorToClient(sessions[session_id].fcli);
@@ -421,19 +500,41 @@ void writeProducer() {
  */
 void readProducer() {
     int session_id;
+    ssize_t read_check;
+    if (readInt(&session_id) <= 0) {
+        return;
+    }
+    /*
     if (read(fserv, &session_id, sizeof(int)) == -1) {
         //sendErrorToClient(sessions[session_id].fcli);
     }
+    */
     printf("session_id: %d\n", session_id);
     r_args *request = get_request(session_id);
     request->op_code = TFS_OP_CODE_READ;
+    if (readInt(&request->fhandle) <= 0) {
+        sendErrorToClient(sessions[session_id].fcli);
+        return;
+    }
+    /*
     if (read(fserv, &request->fhandle, sizeof(int)) == -1) {
         sendErrorToClient(sessions[session_id].fcli);
     }
+    */
     printf("fhandle: %d\n", request->fhandle);
+    do {
+        read_check = read(fserv, &request->size, sizeof(size_t));
+    } while (read_check == -1 && errno == EINTR);
+    if (read_check <= 0) {
+        printf("send error\n");
+        sendErrorToClient(sessions[session_id].fcli);
+        return;
+    }
+    /*
     if (read(fserv, &request->size, sizeof(size_t)) == -1) {
         sendErrorToClient(sessions[session_id].fcli);
     }
+    */
     printf("len: %ld\n", request->size);
     sendRequestToThread(session_id);
     printf("finished read\n");
@@ -445,9 +546,14 @@ void readProducer() {
  */
 void shutdownProducer() {
     int session_id;
+    if (readInt(&session_id) <= 0) {
+        return;
+    }
+    /*
     if (read(fserv, &session_id, sizeof(int)) == -1) {
         //sendErrorToClient(sessions[session_id].fcli);
     }
+    */
     printf("session_id: %d\n", session_id);
     r_args *request = get_request(session_id);
     request->op_code = TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED;
