@@ -81,7 +81,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     client_pipe_name = client_pipe_path;
 
     printf("going to open server pipe\n");
-    // Open client pipe
+    // Open server pipe
     do {
         fserv = open(server_pipe_path, O_WRONLY);
     } while(fserv == -1 && errno == EINTR);
@@ -99,7 +99,7 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
         // Write failed
         return -1;
 
-    // Open server pipe
+    // Open client pipe
     do {
         fcli = open(client_pipe_path, O_RDONLY);
     } while(fcli == -1 && errno == EINTR);
@@ -134,7 +134,6 @@ int tfs_unmount() {
     int r;
     char op_code = '2';
     char request[MAX_UNMOUNT_REQUEST];
-    memset(request, '\0', sizeof(request));
 
     request[0] = op_code;
     memcpy(request+sizeof(char), &session_id, sizeof(int));
@@ -185,7 +184,6 @@ int tfs_close(int fhandle) {
     int r;
     char op_code = '4';
     char request[MAX_CLOSE_REQUEST];
-    memset(request, '\0', sizeof(request));
 
     request[0] = op_code;
     memcpy(request+sizeof(char), &session_id, sizeof(int));
@@ -236,7 +234,6 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     int r;
     char op_code = '6';
     char request[MAX_READ_REQUEST];
-    memset(request, '\0', sizeof(request));
 
     request[0] = op_code;
     memcpy(request+sizeof(char), &session_id, sizeof(int));
@@ -265,7 +262,6 @@ int tfs_shutdown_after_all_closed() {
     int r;
     char op_code = '7';
     char request[MAX_SHUTDOWN_REQUEST];
-    memset(request, '\0', sizeof(request));
 
     request[0] = op_code;
     memcpy(request+sizeof(char), &session_id, sizeof(int));

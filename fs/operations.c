@@ -13,8 +13,6 @@ int destroy_active = 1; // To prevent opening a file before initializing tfs
 int tfs_init() {
     state_init();
 
-    /*if (pthread_mutex_init(&single_global_lock, 0) != 0)
-        return -1;*/
     if (pthread_mutex_lock(&single_global_lock) != 0)
         return -1;
     /* create root inode */
@@ -31,9 +29,6 @@ int tfs_init() {
 
 int tfs_destroy() {
     state_destroy();
-    /*if (pthread_mutex_destroy(&single_global_lock) != 0) {
-        return -1;
-    }*/
     return 0;
 }
 

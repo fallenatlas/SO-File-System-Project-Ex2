@@ -6,7 +6,6 @@
 #define SIZE_CLIENT_PIPE_PATH 40
 #define SIZE_FILE_NAME 40
 #define S 10
-//#define N 15
 
 typedef struct {
     int op_code;
@@ -20,11 +19,9 @@ typedef struct {
 typedef struct {
     int fcli;
     r_args request;
-    //int prodptr;
     int count;
     pthread_mutex_t prod_cons_mutex;
     pthread_cond_t cons;
-    //pthread_cond_t prod;
 } session_info;
 
 

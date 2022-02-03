@@ -10,7 +10,7 @@
  * then close the files. Meanwhile, another process asks the tfs_server to
  * shutdown. */
 
-#define CLIENT_COUNT 20
+#define CLIENT_COUNT 10
 #define CLIENT_PIPE_NAME_LEN 40
 #define CLIENT_PIPE_NAME_FORMAT "/tmp/tfs_c%d"
 
