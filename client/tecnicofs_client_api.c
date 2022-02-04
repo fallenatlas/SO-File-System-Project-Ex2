@@ -80,15 +80,13 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     }
     client_pipe_name = client_pipe_path;
 
-    printf("going to open server pipe\n");
     // Open server pipe
     do {
         fserv = open(server_pipe_path, O_WRONLY);
     } while(fserv == -1 && errno == EINTR);
-    printf("after opening server pipe\n");
         
     if (fserv == -1){
-        fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
+        fprintf(stderr, "[ERR]: open server failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
@@ -106,17 +104,15 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
         
     if (fcli == -1) {
         close(fserv);
-        fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
+        fprintf(stderr, "[ERR]: open client failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
     
-    printf("after opening client pipe\n");
     // Read response from the client pipe.
     if (receive_msg(&s_id) == -1)
         // Read failed
         return -1;
 
-    printf("s_id: %d\n", s_id);
     // Set the session_id.
     if (s_id == -1) {
         close(fserv);
@@ -126,7 +122,6 @@ int tfs_mount(char const *client_pipe_path, char const *server_pipe_path) {
     }
 
     session_id = s_id;
-    printf("Session id: %d\n", session_id);
     return 0;
 }
 
@@ -146,13 +141,14 @@ int tfs_unmount() {
         // Read failed
         return -1;
 
-    printf("return: %d\n", r);
     if (r == -1) {
         return r;
     }
 
-    close(fserv);
-    close(fcli);
+    if (close(fserv) == -1)
+        return -1;
+    if (close(fcli) == -1)
+        return -1;
     unlink(client_pipe_name);
     return r;
 }
@@ -176,7 +172,6 @@ int tfs_open(char const *name, int flags) {
         // Read failed
         return -1;
 
-    printf("fhandle: %d\n", fhandle);
     return fhandle;
 }
 
@@ -197,7 +192,6 @@ int tfs_close(int fhandle) {
         // Read failed
         return -1;
 
-    printf("return close: %d\n", r);
     return r;
 }
 
@@ -226,7 +220,6 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t len) {
     }
 
     free(request);
-    printf("return write: %d\n", r);
     return (ssize_t) r;
 }
 
@@ -248,12 +241,10 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
         // Read failed
         return -1;
 
-    printf("read: %d\n", r);
     // Read buffer that was requested to read
     if (receive_buffer(buffer, (size_t)r) == -1)
         // Read failed
         return -1;
-    
 
     return (ssize_t) r;
 }

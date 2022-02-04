@@ -336,7 +336,7 @@ void mountProducer() {
     }
     else if (ret == 0)
         return;
-    printf("client pipe: %s\n", client_pipe);
+
     // Open client pipe
     do {
         fclient = open(client_pipe, O_WRONLY);
@@ -357,7 +357,6 @@ void mountProducer() {
     r_args *request = get_request(session_id);
     request->op_code = TFS_OP_CODE_MOUNT;
     sendRequestToThread(session_id);
-    printf("finished mount, %d\n", sessions[session_id].fcli);
     return;
 }
 
@@ -375,11 +374,9 @@ void unmountProducer() {
         // There aren't write ends open
         return;
     }
-    printf("session_id: %d\n", session_id);
     r_args *request = get_request(session_id);
     request->op_code = TFS_OP_CODE_UNMOUNT;
     sendRequestToThread(session_id);
-    printf("finished unmount\n");
 }
 
 /*
@@ -397,28 +394,22 @@ void openProducer() {
         // There aren't write ends open
         return;
     }
-    printf("session_id: %d\n", session_id);
 
     r_args *request = get_request(session_id);
     request->op_code = TFS_OP_CODE_OPEN;
     if ((ret = readBuffer(request->file_name, SIZE_FILE_NAME)) < 0) {
-        printf("send error\n");
         trySendErrorToClient(sessions[session_id].fcli, session_id);
         shutdownServer();
     }
     else if (ret == 0)
         return;
-    printf("file name: %s\n", request->file_name);
     if ((ret =readInt(&request->flags)) < 0) {
-        printf("send error\n");
         trySendErrorToClient(sessions[session_id].fcli, session_id);
         shutdownServer();
     }
     else if (ret == 0)
         return;
-    printf("flags: %d\n", request->flags);
     sendRequestToThread(session_id);
-    printf("finished open\n");
 }
 
 /*
@@ -436,7 +427,6 @@ void closeProducer() {
         // There aren't write ends open
         return;
     }
-    printf("session_id: %d\n", session_id);
 
     r_args *request = get_request(session_id);
     request->op_code = TFS_OP_CODE_CLOSE;
@@ -446,9 +436,7 @@ void closeProducer() {
     }
     else if (ret == 0)
         return;
-    printf("fhandle: %d\n", request->fhandle);
     sendRequestToThread(session_id);
-    printf("finished close\n");
 }
 
 /*
@@ -466,7 +454,6 @@ void writeProducer() {
         // There aren't write ends open
         return;
     }
-    printf("session_id: %d\n", session_id);
     r_args *request = get_request(session_id);
     request->op_code = TFS_OP_CODE_WRITE;
     if ((ret = readInt(&request->fhandle)) < 0) {
@@ -475,29 +462,23 @@ void writeProducer() {
     }
     else if (ret == 0)
         return;
-    printf("fhandle: %d\n", request->fhandle);
     if ((ret = readSizeT(&request->size)) < 0) {
-        printf("send error\n");
         trySendErrorToClient(sessions[session_id].fcli, session_id);
         shutdownServer();
     }
     else if (ret == 0)
         return;
-    printf("len: %ld\n", request->size);
     request->buffer = (char*) malloc(sizeof(char)*(request->size));
     if (request->buffer == NULL)
         shutdownServer();
 
     if ((ret = readBuffer(request->buffer, request->size)) < 0) {
-        printf("send error\n");
         trySendErrorToClient(sessions[session_id].fcli, session_id);
         shutdownServer();
     }
     else if (ret == 0)
         return;
-    printf("buffer: %s\n", request->buffer);
     sendRequestToThread(session_id);
-    printf("finished write\n");
 }
 
 /*
@@ -514,7 +495,6 @@ void readProducer() {
         // There aren't write ends open
         return;
     }
-    printf("session_id: %d\n", session_id);
     r_args *request = get_request(session_id);
     request->op_code = TFS_OP_CODE_READ;
     if ((ret = readInt(&request->fhandle)) < 0) {
@@ -523,17 +503,13 @@ void readProducer() {
     }
     else if (ret == 0)
         return;
-    printf("fhandle: %d\n", request->fhandle);
     if ((ret = readSizeT(&request->size)) < 0) {
-        printf("send error\n");
         trySendErrorToClient(sessions[session_id].fcli, session_id);
         shutdownServer();
     }
     else if (ret == 0)
         return;
-    printf("len: %ld\n", request->size);
     sendRequestToThread(session_id);
-    printf("finished read\n");
 }
 
 /*
@@ -551,11 +527,9 @@ void shutdownProducer() {
         // There aren't write ends open
         return;
     }
-    printf("session_id: %d\n", session_id);
     r_args *request = get_request(session_id);
     request->op_code = TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED;
     sendRequestToThread(session_id);
-    printf("finished shutdown\n");
 
 }
 
@@ -570,38 +544,30 @@ void processRequest(char *char_opcode) {
 
     switch(op_code) {
         case TFS_OP_CODE_MOUNT :
-            printf("op: %d, mount\n", op_code);
             mountProducer();
             break;
         case TFS_OP_CODE_UNMOUNT :
-            printf("op: %d, unmount\n", op_code);
             unmountProducer();
             break;
         case TFS_OP_CODE_OPEN :
-            printf("op: %d, open\n", op_code);
             openProducer();
             break;
         case TFS_OP_CODE_CLOSE :
-            printf("op: %d, close\n", op_code);
             closeProducer();
             break;
         case TFS_OP_CODE_WRITE :
-            printf("op: %d, write\n", op_code);
             writeProducer();
             break;
         case TFS_OP_CODE_READ :
-            printf("op: %d, read\n", op_code);
             readProducer();
             break;
         case TFS_OP_CODE_SHUTDOWN_AFTER_ALL_CLOSED :
-            printf("op: %d, shutdown\n", op_code);
             shutdownProducer();
             break;
         default:
             return;
     }
 
-    printf("returning from process request\n");
     return;
 }
 
